@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Hotspot Mirror</string>
+    <string name="channel_service">Connection status</string>
+    <string name="channel_sms">SMS and OTPs</string>
+    <string name="channel_calls">Calls</string>
+    <string name="channel_notifs">Mirrored notifications</string>
+    <string name="copy_code">Copy code</string>
+</resources>

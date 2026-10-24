@@ -2,7 +2,10 @@ package com.hotspotmirror.sender
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
+import androidx.core.app.ServiceCompat
 import android.os.PowerManager
 import com.hotspotmirror.core.*
 import java.net.ServerSocket
@@ -49,12 +52,39 @@ class SenderService : Service() {
             val hello = ch.receive() as? Message.Hello ?: return // wrong key throws before this
             client = Client(ch, hello.deviceName, System.currentTimeMillis()).also { clients.add(it) }
             pushDeviceList()
-            while (true) { ch.receive() } // Viewer only sends pings; any read error ends the session
+            while (true) onViewerMessage(ch.receive()) // any read error ends the session
         } catch (_: Exception) {
         } finally {
             client?.let { clients.remove(it) }
             runCatching { sock.close() }
             pushDeviceList()
+        }
+    }
+
+    private val relay = AudioRelay()
+    private val micGranted get() = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == 0
+
+    /** Call control and audio from the Viewer. Audio needs RECORD_AUDIO on this phone; speaker is forced on so the mic hears the call. */
+    private fun onViewerMessage(m: Message) {
+        val am = getSystemService(android.media.AudioManager::class.java)
+        val telecom = getSystemService(android.telecom.TelecomManager::class.java)
+        when (m) {
+            is Message.Audio -> relay.play(m.pcm)
+            is Message.Control -> when (m.action) {
+                "audio_start" -> if (micGranted) {
+                    ServiceCompat.startForeground(this, 1, Notifications.foreground(this, "Relaying call audio"),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                    am.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                    @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = true }
+                    relay.startCapture { broadcast(Message.Audio(it)) }
+                }
+                "audio_stop" -> { relay.stop(); @Suppress("DEPRECATION") run { am.isSpeakerphoneOn = false } }
+                "answer" -> if (checkSelfPermission(android.Manifest.permission.ANSWER_PHONE_CALLS) == 0)
+                    @Suppress("MissingPermission") telecom.acceptRingingCall()
+                "hangup" -> if (Build.VERSION.SDK_INT >= 28 && checkSelfPermission(android.Manifest.permission.ANSWER_PHONE_CALLS) == 0)
+                    @Suppress("MissingPermission") telecom.endCall()
+            }
+            else -> Unit
         }
     }
 
@@ -72,6 +102,7 @@ class SenderService : Service() {
 
     override fun onDestroy() {
         instance = null
+        relay.stop()
         nsd.unregister()
         runCatching { server?.close() }
         clients.forEach { it.channel.close() }

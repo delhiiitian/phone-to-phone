@@ -4,7 +4,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.IBinder
+import androidx.core.app.ServiceCompat
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.hotspotmirror.R
@@ -23,6 +25,8 @@ class ViewerService : Service() {
     @Volatile private var running = true
     @Volatile private var target: Triple<String, Int, String>? = null
     private var nextId = 100
+    private val relay = AudioRelay()
+    @Volatile private var channel: SecureChannel? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -44,11 +48,13 @@ class ViewerService : Service() {
                 val sock = Socket().apply { connect(InetSocketAddress(t.first, t.second), 5000); keepAlive = true }
                 val ch = SecureChannel.asViewer(sock, key)
                 ch.send(Message.Hello(prefs.deviceName, Mode.VIEWER))
+                channel = ch
                 ViewerState.connected = true; ViewerState.senderName = t.third; ViewerState.changed()
                 updateStatus("Connected to ${t.third}")
                 while (running) handle(ch.receive())
             } catch (_: Exception) {
             } finally {
+                channel = null; relay.stop()
                 ViewerState.connected = false; ViewerState.devices = emptyList(); ViewerState.changed()
                 updateStatus("Reconnecting…")
             }
@@ -58,6 +64,7 @@ class ViewerService : Service() {
 
     private fun handle(m: Message) {
         when (m) {
+            is Message.Audio -> relay.play(m.pcm)
             is Message.Devices -> { ViewerState.devices = m.list; ViewerState.changed() }
             is Message.Sms -> { ViewerState.add(m); show(Notifications.CH_SMS, m.contactName ?: m.from, m.body, m.otp) }
             is Message.Call -> {
@@ -88,7 +95,24 @@ class ViewerService : Service() {
     private fun updateStatus(text: String) =
         getSystemService(NotificationManager::class.java).notify(2, Notifications.foreground(this, text))
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
+    /** Called from the UI. "audio_start" also begins capturing this phone's mic (RECORD_AUDIO must be granted). */
+    private fun control(action: String) {
+        val ch = channel ?: return
+        thread { runCatching { ch.send(Message.Control(action)) } }
+        when (action) {
+            "audio_start" -> if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == 0) {
+                ServiceCompat.startForeground(this, 2, Notifications.foreground(this, "Call audio on"),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                relay.startCapture { f -> runCatching { ch.send(Message.Audio(f)) } }
+            }
+            "audio_stop" -> relay.stop()
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.getStringExtra(EXTRA_ACTION)?.let { control(it) }
+        return START_STICKY
+    }
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
@@ -97,4 +121,6 @@ class ViewerService : Service() {
         wakeLock?.release()
         super.onDestroy()
     }
+
+    companion object { const val EXTRA_ACTION = "action" }
 }

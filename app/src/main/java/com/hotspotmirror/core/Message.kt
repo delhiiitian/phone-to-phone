@@ -27,6 +27,12 @@ sealed class Message {
 
     data object Ping : Message() { override val type = "ping" }
 
+    /** Viewer -> Sender call control: answer, hangup, audio_start, audio_stop. */
+    data class Control(val action: String) : Message() { override val type = "ctl" }
+
+    /** 16 kHz mono PCM16 chunk of call audio, either direction. */
+    class Audio(val pcm: ByteArray) : Message() { override val type = "audio" }
+
     fun toJson(): String {
         val o = JSONObject().put("t", type)
         when (this) {
@@ -41,6 +47,8 @@ sealed class Message {
                         .put("role", it.role.name).put("since", it.connectedSince))
                 }
             })
+            is Control -> o.put("action", action)
+            is Audio -> o.put("d", java.util.Base64.getEncoder().encodeToString(pcm))
             Ping -> Unit
         }
         return o.toString()
@@ -65,6 +73,8 @@ sealed class Message {
                     })
                 }
                 "ping" -> Ping
+                "ctl" -> Control(o.getString("action"))
+                "audio" -> Audio(java.util.Base64.getDecoder().decode(o.getString("d")))
                 else -> throw IllegalArgumentException("unknown message type $t")
             }
         }

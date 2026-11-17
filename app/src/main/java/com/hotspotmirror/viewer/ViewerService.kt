@@ -30,7 +30,9 @@ class ViewerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(2, Notifications.foreground(this, "Looking for hotspot phone…"))
+        // Explicit type: see SenderService. The Viewer has not been granted RECORD_AUDIO at this point.
+        ServiceCompat.startForeground(this, 2, Notifications.foreground(this, "Looking for hotspot phone…"),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "hotspotmirror:viewer").apply { acquire() }
         nsd = Nsd(this)

@@ -27,7 +27,10 @@ class SenderService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        startForeground(1, Notifications.foreground(this, "Forwarding to your devices"))
+        // Explicit type: with no type Android 14 uses every type in the manifest, and the microphone
+        // type throws SecurityException when RECORD_AUDIO has not been granted yet.
+        ServiceCompat.startForeground(this, 1, Notifications.foreground(this, "Forwarding to your devices"),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "hotspotmirror:sender").apply { acquire() }
         nsd = Nsd(this)

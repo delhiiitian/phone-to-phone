@@ -6,8 +6,8 @@ object OtpExtractor {
         "(otp|one[- ]time|code|passcode|password|pin|verification|verify|token|2fa|login)",
         RegexOption.IGNORE_CASE,
     )
-    // 4-8 digits, optionally split as 123-456 or 123 456. Not part of a longer number.
-    private val candidate = Regex("(?<![\\d₹$.,])(\\d{3,4}[- ]?\\d{3,4}|\\d{4,8})(?![\\d.,])")
+    // 4-8 digits, optionally split as 123-456 or 123 456. Not part of a longer or decimal number; a sentence-ending "." is fine.
+    private val candidate = Regex("(?<![\\d₹$])(?<!\\d[.,])(\\d{3,4}[- ]?\\d{3,4}|\\d{4,8})(?!\\d|[.,]\\d)")
 
     fun extract(text: String?): String? {
         if (text.isNullOrBlank() || !keyword.containsMatchIn(text)) return null

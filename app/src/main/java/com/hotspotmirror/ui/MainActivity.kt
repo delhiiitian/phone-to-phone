@@ -69,6 +69,7 @@ class MainActivity : AppCompatActivity() {
             permLauncher.launch(arrayOf(
                 Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_PHONE_STATE,
                 Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS,
+                Manifest.permission.RECORD_AUDIO, Manifest.permission.ANSWER_PHONE_CALLS,
                 *(if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray())))
         })
         root.addView(button("Enable notification access") { startActivity(Background.notificationListenerSettings()) })
@@ -90,6 +91,10 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.startForegroundService(this, Intent(this, ViewerService::class.java))
         })
         root.addView(text(if (ViewerState.connected) "Connected to ${ViewerState.senderName}" else "Not connected"))
+        root.addView(text("Call control", 18f))
+        for ((label, action) in listOf("Answer" to "answer", "Hang up" to "hangup",
+            "Start call audio" to "audio_start", "Stop call audio" to "audio_stop"))
+            root.addView(button(label) { viewerControl(action) })
         root.addView(text("Connected devices", 18f))
         ViewerState.devices.forEach { root.addView(text("• ${it.name} (${it.address})")) }
         root.addView(text("Recent", 18f))
@@ -102,6 +107,14 @@ class MainActivity : AppCompatActivity() {
         is Message.Call -> "Call ${m.state}: ${m.contactName ?: m.number ?: "Unknown"}"
         is Message.Notif -> "${m.appName}: ${m.title.orEmpty()} ${m.text.orEmpty()}"
         else -> ""
+    }
+
+    private fun viewerControl(action: String) {
+        if (action == "audio_start" && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != 0) {
+            permLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO)); return
+        }
+        ContextCompat.startForegroundService(this, Intent(this, ViewerService::class.java)
+            .putExtra(ViewerService.EXTRA_ACTION, action))
     }
 
     private fun stopServices() {

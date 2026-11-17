@@ -15,6 +15,7 @@ class Nsd(private val context: Context) {
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private var regListener: NsdManager.RegistrationListener? = null
     private var discListener: NsdManager.DiscoveryListener? = null
+    private val resolving = java.util.concurrent.atomic.AtomicBoolean(false)
     private var multicastLock: WifiManager.MulticastLock? = null
 
     fun register(name: String, port: Int) {
@@ -24,8 +25,8 @@ class Nsd(private val context: Context) {
             setPort(port)
         }
         regListener = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(i: NsdServiceInfo) = Log.i(TAG, "registered ${i.serviceName}")
-            override fun onRegistrationFailed(i: NsdServiceInfo, e: Int) = Log.w(TAG, "register failed $e")
+            override fun onServiceRegistered(i: NsdServiceInfo) { Log.i(TAG, "registered ${i.serviceName}") }
+            override fun onRegistrationFailed(i: NsdServiceInfo, e: Int) { Log.w(TAG, "register failed $e") }
             override fun onServiceUnregistered(i: NsdServiceInfo) = Unit
             override fun onUnregistrationFailed(i: NsdServiceInfo, e: Int) = Unit
         }
@@ -43,17 +44,19 @@ class Nsd(private val context: Context) {
         multicastLock = wifi.createMulticastLock("hotspotmirror").apply { setReferenceCounted(false); acquire() }
 
         discListener = object : NsdManager.DiscoveryListener {
-            override fun onDiscoveryStarted(t: String) = Log.i(TAG, "discovery started")
+            override fun onDiscoveryStarted(t: String) { Log.i(TAG, "discovery started") }
             override fun onDiscoveryStopped(t: String) = Unit
-            override fun onStartDiscoveryFailed(t: String, e: Int) = Log.w(TAG, "discovery failed $e")
+            override fun onStartDiscoveryFailed(t: String, e: Int) { Log.w(TAG, "discovery failed $e") }
             override fun onStopDiscoveryFailed(t: String, e: Int) = Unit
-            override fun onServiceLost(i: NsdServiceInfo) = Log.i(TAG, "lost ${i.serviceName}")
+            override fun onServiceLost(i: NsdServiceInfo) { Log.i(TAG, "lost ${i.serviceName}") }
             override fun onServiceFound(i: NsdServiceInfo) {
                 if (!i.serviceType.startsWith(SERVICE_TYPE.trimEnd('.'))) return
+                if (!resolving.compareAndSet(false, true)) return // resolveService throws if a resolve is already running
                 @Suppress("DEPRECATION") // resolveService is fine on API 26-33; registerServiceInfoCallback is 34+.
                 nsd.resolveService(i, object : NsdManager.ResolveListener {
-                    override fun onResolveFailed(s: NsdServiceInfo, e: Int) = Log.w(TAG, "resolve failed $e")
+                    override fun onResolveFailed(s: NsdServiceInfo, e: Int) { resolving.set(false); Log.w(TAG, "resolve failed $e") }
                     override fun onServiceResolved(s: NsdServiceInfo) {
+                        resolving.set(false)
                         @Suppress("DEPRECATION")
                         val host = s.host?.hostAddress ?: return
                         onFound(host, s.port, s.serviceName)

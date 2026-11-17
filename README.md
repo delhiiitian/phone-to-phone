@@ -50,3 +50,11 @@ So "the personal phone acts as the headset" most likely won't work on stock firm
 3. **Speakerphone bridge:** Sender forces speaker and streams mic audio (it hears the other party acoustically) over the existing encrypted socket; Viewer sends mic audio back to the Sender's speaker. Works without BT or root, but quality is poor and echo cancellation is hard.
 
 Recommendation: do option 1's quick check on your devices, then decide between 2 and 3. Phase 1 is independent.
+
+### Call audio: what was tried and what Android allows
+
+The call-audio relay is an acoustic bridge, not a true call patch. Stock Android gives apps no way to read the caller's voice stream or write into the call's uplink (`VOICE_CALL` capture and uplink injection are privileged). So:
+
+- **Caller to Viewer:** the Sender turns the speakerphone and volume up and records its own microphone (plain `MIC` source, no echo cancellation) while the call is on. On phones whose OS feeds apps silence during a call (many Pixels, most Android 10+ builds), this is silent; the Viewer is told ("No call audio").
+- **Viewer to caller:** the Sender plays the Viewer's voice on its loudspeaker and the phone's own mic carries it into the call. Quality depends on speaker/mic placement and volume.
+- Real two-way audio needs Bluetooth HFP (the personal phone cannot be an HFP headset on stock Android) or a rooted/privileged build.

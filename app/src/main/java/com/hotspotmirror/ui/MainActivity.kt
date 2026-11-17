@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.hotspotmirror.core.*
 import com.hotspotmirror.sender.SenderService
+import com.hotspotmirror.viewer.HistoryDb
 import com.hotspotmirror.viewer.ViewerService
 import com.hotspotmirror.viewer.ViewerState
 
@@ -91,8 +92,12 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.startForegroundService(this, Intent(this, ViewerService::class.java))
         })
         root.addView(text(if (ViewerState.connected) "Connected to ${ViewerState.senderName}" else "Not connected"))
+        root.addView(text("History", 18f))
+        for ((label, kind) in listOf("Call history" to HistoryDb.CALL, "Message history" to HistoryDb.SMS,
+            "Notification history" to HistoryDb.NOTIF))
+            root.addView(button(label) { startActivity(Intent(this, HistoryActivity::class.java).putExtra(HistoryActivity.EXTRA_KIND, kind)) })
         root.addView(text("Call control", 18f))
-        for ((label, action) in listOf("Answer" to "answer", "Hang up" to "hangup",
+        for ((label, action) in listOf("Answer + call audio" to "answer_audio", "Answer only" to "answer", "Hang up" to "hangup",
             "Start call audio" to "audio_start", "Stop call audio" to "audio_stop"))
             root.addView(button(label) { viewerControl(action) })
         root.addView(text("Connected devices", 18f))
@@ -110,7 +115,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun viewerControl(action: String) {
-        if (action == "audio_start" && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != 0) {
+        if ((action == "audio_start" || action == "answer_audio") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != 0) {
             permLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO)); return
         }
         ContextCompat.startForegroundService(this, Intent(this, ViewerService::class.java)

@@ -5,6 +5,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.MediaRecorder
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import android.os.PowerManager
@@ -25,7 +27,10 @@ class ViewerService : Service() {
     @Volatile private var running = true
     @Volatile private var target: Triple<String, Int, String>? = null
     private var nextId = 100
-    private val relay = AudioRelay()
+    // Voice-communication source on this phone: echo cancellation keeps the caller from hearing themselves.
+    private val relay = AudioRelay(MediaRecorder.AudioSource.VOICE_COMMUNICATION, AudioAttributes.USAGE_MEDIA)
+    private val history by lazy { HistoryDb.get(this) }
+    private var lastCallState = "idle"
     @Volatile private var channel: SecureChannel? = null
 
     override fun onCreate() {
@@ -68,13 +73,37 @@ class ViewerService : Service() {
         when (m) {
             is Message.Audio -> relay.play(m.pcm)
             is Message.Devices -> { ViewerState.devices = m.list; ViewerState.changed() }
-            is Message.Sms -> { ViewerState.add(m); show(Notifications.CH_SMS, m.contactName ?: m.from, m.body, m.otp) }
+            is Message.Control -> when (m.action) {
+                "mic_silent" -> show(Notifications.CH_CALLS, "No call audio",
+                    "The hotspot phone's Android is giving the app silence while a call is active. The caller's voice can't be relayed on this phone.", null)
+                "mic_denied" -> show(Notifications.CH_CALLS, "Call audio unavailable",
+                    "The hotspot phone refused microphone access. Open the Sender app, grant the microphone permission, and tap Start forwarding again.", null)
+            }
+            is Message.Sms -> {
+                ViewerState.add(m)
+                history.insert(HistoryDb.SMS, m.ts, m.contactName ?: m.from, m.body, m.otp)
+                show(Notifications.CH_SMS, m.contactName ?: m.from, m.body, m.otp)
+            }
             is Message.Call -> {
                 ViewerState.add(m)
-                if (m.state == "ringing") show(Notifications.CH_CALLS, "Incoming call", m.contactName ?: m.number ?: "Unknown", null)
+                val who = m.contactName ?: m.number ?: "Unknown"
+                when (m.state) {
+                    "ringing" -> {
+                        history.insert(HistoryDb.CALL, m.ts, who, "Incoming call")
+                        show(Notifications.CH_CALLS, "Incoming call", who, null)
+                    }
+                    "offhook" -> if (lastCallState != "offhook") history.insert(HistoryDb.CALL, m.ts, who, "Call answered or started")
+                    "idle" -> {
+                        relay.stop()
+                        if (lastCallState == "ringing") history.insert(HistoryDb.CALL, m.ts, who, "Missed call")
+                        else if (lastCallState == "offhook") history.insert(HistoryDb.CALL, m.ts, who, "Call ended")
+                    }
+                }
+                lastCallState = m.state
             }
             is Message.Notif -> if (!m.removed) {
                 ViewerState.add(m)
+                history.insert(HistoryDb.NOTIF, m.ts, "${m.appName}: ${m.title.orEmpty()}", m.text.orEmpty(), m.otp)
                 show(Notifications.CH_NOTIFS, "${m.appName}: ${m.title.orEmpty()}", m.text.orEmpty(), m.otp)
             }
             else -> Unit
@@ -100,6 +129,11 @@ class ViewerService : Service() {
     /** Called from the UI. "audio_start" also begins capturing this phone's mic (RECORD_AUDIO must be granted). */
     private fun control(action: String) {
         val ch = channel ?: return
+        if (action == "answer_audio") { // answer first, then give the call a moment to connect before relaying
+            control("answer")
+            thread { Thread.sleep(1200); control("audio_start") }
+            return
+        }
         thread { runCatching { ch.send(Message.Control(action)) } }
         when (action) {
             "audio_start" -> if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == 0) {

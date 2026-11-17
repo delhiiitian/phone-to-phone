@@ -49,6 +49,8 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".ui.HistoryActivity" android:exported="false" />
+
         <!-- Sender mode -->
         <service
             android:name=".sender.SenderService"

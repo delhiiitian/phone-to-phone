@@ -9,10 +9,13 @@ import android.media.MediaRecorder
 import kotlin.concurrent.thread
 
 /**
- * Half-duplex building block for the call-audio bridge: captures the mic as 20 ms PCM16 frames
+ * Building block for the call-audio bridge: captures the mic as 20 ms PCM16 frames
  * and plays received frames. Both phones run one. Needs RECORD_AUDIO granted before [startCapture].
  */
-class AudioRelay {
+class AudioRelay(
+    private val captureSource: Int = MediaRecorder.AudioSource.MIC,
+    private val playbackUsage: Int = AudioAttributes.USAGE_MEDIA,
+) {
     @Volatile private var capturing = false
     private var track: AudioTrack? = null
 
@@ -22,7 +25,7 @@ class AudioRelay {
         capturing = true
         thread(name = "audio-capture") {
             val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, RATE,
+            val rec = AudioRecord(captureSource, RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
             try {
                 rec.startRecording()
@@ -46,7 +49,7 @@ class AudioRelay {
     fun play(pcm: ByteArray) {
         val t = track ?: AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setUsage(playbackUsage)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
